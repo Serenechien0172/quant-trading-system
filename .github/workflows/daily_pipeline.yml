@@ -1,0 +1,68 @@
+name: Daily Pipeline
+on:
+  schedule:
+    - cron: '37 22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      initialize:
+        description: 'Initialize ONLY if no paper-state release exists'
+        type: boolean
+        default: false
+      strategy:
+        description: 'Strategy for initial account; keep unchanged thereafter'
+        type: choice
+        options: [cash, dummy]
+        default: cash
+permissions:
+  contents: write
+concurrency:
+  group: persistent-paper-account
+  cancel-in-progress: false
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PAPER_DB: data/paper.db
+      INITIALIZE: ${{ inputs.initialize || false }}
+      STRATEGY: ${{ inputs.strategy || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lint and deterministic tests before account execution
+        run: |
+          ruff check .
+          pytest -q
+      - name: Restore durable account (never silently reset)
+        run: python -m src.cloud_state restore
+      - name: Update completed market sessions
+        run: python -m src.main update
+      - name: Execute paper pipeline and store snapshots
+        run: |
+          if [ -n "$STRATEGY" ]; then
+            python -m src.main pipeline --strategy "$STRATEGY"
+          else
+            python -m src.main pipeline
+          fi
+      - name: Publish daily report
+        run: |
+          python -m src.main portfolio >> "$GITHUB_STEP_SUMMARY"
+          python -m src.main performance >> "$GITHUB_STEP_SUMMARY"
+      - name: Persist account for next run
+        run: python -m src.cloud_state save
+      - name: Retain diagnostic account backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-account-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/paper.db
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Report failure
+        if: failure()
+        run: echo '::error::Paper pipeline failed. Inspect the failed step; never reinitialize to recover an existing account.'
