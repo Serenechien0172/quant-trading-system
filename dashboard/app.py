@@ -14,9 +14,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from dashboard.data import load_report
+from dashboard.session_demo import run_session_demo
 from src.calendar import latest_completed
-from src.config import SYMBOLS, Settings
-from src.demo import DEMO_DIRECTORY, simulate
+from src.config import Settings
 
 st.set_page_config(
     page_title="Quant Trading | Portfolio", page_icon=":material/monitoring:", layout="wide"
@@ -42,65 +42,59 @@ h2,h3 {letter-spacing:0 !important;}
 )
 
 settings = Settings.from_env()
-st.title("Portfolio monitor")
 mode = st.segmented_control("Account", ["Historical demo", "Live paper"], default="Historical demo")
 demo_mode = mode != "Live paper"
+st.title("Historical Simulation — Paper Money Only" if demo_mode else "Live Paper Portfolio")
+
+if demo_mode:
+    st.caption("SPY · QQQ · AAPL · NVDA · MSFT | 20 / 50 SMA | $100,000 starting capital")
+    with st.form("demo"):
+        left, right = st.columns(2)
+        start = left.date_input("Start", date(2025, 1, 1))
+        end = right.date_input("End", date.fromisoformat(latest_completed()))
+        submitted = st.form_submit_button(
+            "Run Demo Simulation", icon=":material/play_arrow:", type="primary"
+        )
+    if submitted:
+        try:
+            with st.spinner("Downloading five-symbol history and simulating trading sessions…"):
+                result = run_session_demo(start.isoformat(), end.isoformat(), settings)
+            st.session_state["demo_report"] = result
+            st.session_state["demo_requested_end"] = end.isoformat()
+        except Exception as exc:
+            st.error(f"Demo unavailable: {exc}")
+            if "demo_report" in st.session_state:
+                st.warning(
+                    "Showing the previous successful simulation; this request did not replace it."
+                )
 
 with st.sidebar:
     st.header("Quant Trading")
     st.caption("PAPER ACCOUNTS ONLY")
-    if demo_mode:
-        st.subheader("Historical simulation")
-        with st.form("demo"):
-            symbol = st.selectbox("Symbol", SYMBOLS)
-            start = st.date_input("Start", date(2025, 1, 1))
-            end = st.date_input(
-                "End", min(date(2026, 10, 1), date.fromisoformat(latest_completed()))
-            )
-            st.caption("20 / 50 SMA · $100,000 initial capital")
-            submitted = st.form_submit_button(
-                "Run simulation", icon=":material/play_arrow:", width="stretch"
-            )
-        if submitted:
-            try:
-                with st.spinner("Simulating historical sessions…"):
-                    generated = simulate(start.isoformat(), end.isoformat(), settings, symbol)
-                st.session_state["selected_demo"] = str(generated)
-            except Exception as exc:
-                st.error(f"Simulation failed: {exc}")
-        paths = sorted(
-            DEMO_DIRECTORY.glob("sma-*.db"), key=lambda p: p.stat().st_mtime, reverse=True
-        )
-        if paths:
-            options = [str(p) for p in paths]
-            selected = st.session_state.get("selected_demo", options[0])
-            selected = st.selectbox(
-                "Saved account",
-                options,
-                index=options.index(selected) if selected in options else 0,
-                format_func=lambda p: Path(p).stem.rsplit("-", 1)[0],
-            )
-            path = Path(selected)
-        else:
-            path = None
-    else:
-        path = settings.database
+    if not demo_mode:
         st.caption("LIVE PAPER · READ ONLY")
     if st.button("Refresh", icon=":material/refresh:", width="stretch"):
         st.rerun()
 
-if path is None:
-    st.info("No historical simulations yet.")
-    st.stop()
-try:
-    report = load_report(path, expect_demo=demo_mode)
-except Exception as exc:
-    st.warning(str(exc))
-    st.stop()
+if demo_mode:
+    report = st.session_state.get("demo_report")
+    if report is None:
+        st.metric("Starting capital", "$100,000.00")
+        st.stop()
+else:
+    try:
+        report = load_report(settings.database, expect_demo=False)
+    except Exception:
+        st.warning(
+            "No live paper account is connected to this deployment. Historical demo is available independently."
+        )
+        st.stop()
 
 history = report.snapshots
 last = history.iloc[-1]
 as_of = last["date"].date().isoformat()
+if demo_mode and as_of < st.session_state.get("demo_requested_end", as_of):
+    st.info(f"Results end on {as_of}, the latest common trading session with available data.")
 st.caption(
     f"{'HISTORICAL DEMO' if demo_mode else 'LIVE PAPER'}  ·  {report.strategy}  ·  As of {as_of} close  ·  USD"
 )
@@ -139,6 +133,9 @@ cols[1].metric(
 sharpe = report.metrics["sharpe_ratio"]
 cols[2].metric("Sharpe ratio", "N/A" if sharpe is None else f"{sharpe:.2f}")
 cols[3].metric("Maximum drawdown", f"{report.metrics['maximum_drawdown']:.2%}")
+cols = st.columns(2)
+cols[0].metric("Starting capital", "$100,000.00")
+cols[1].metric("Number of trades", str(len(report.trades)))
 st.divider()
 
 period = st.segmented_control("Chart period", ["All", "1Y", "6M", "3M"], default="All")
@@ -192,7 +189,7 @@ with relative:
     )
 
 positions_tab, trades_tab, daily_tab = st.tabs(
-    ["Current positions", "Recent trades", "Daily P&L history"]
+    ["Final positions" if demo_mode else "Current positions", "Recent trades", "Daily P&L history"]
 )
 with positions_tab:
     if report.positions.empty:

@@ -82,6 +82,56 @@ class HistoricalYahooProvider:
         return [b for b in YahooProvider().fetch(symbol, start, self.through) if b.date <= end]
 
 
+class BasketMovingAverageCrossover:
+    """Five independent SMA signals with 20% prior-equity entry budgets."""
+
+    name = "demo-sma20-50-five-symbols"
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.legs = {symbol: MovingAverageCrossover(settings, symbol) for symbol in SYMBOLS}
+
+    def signal(self, db: sqlite3.Connection, day: str) -> dict[str, int]:
+        return {symbol: leg.signal(db, day) for symbol, leg in self.legs.items()}
+
+    def orders(self, db: sqlite3.Connection, day: str) -> list[Order]:
+        a = account(db)
+        if day == a["start_date"]:
+            return []
+        signals = self.signal(db, day)
+        positions = {
+            p["symbol"]: number(p["quantity"]) for p in db.execute("SELECT * FROM positions")
+        }
+        openings = {
+            b["symbol"]: number(b["open"])
+            for b in db.execute("SELECT symbol,open FROM bars WHERE date=?", (day,))
+        }
+        previous = db.execute(
+            "SELECT equity FROM snapshots WHERE date<? ORDER BY date DESC LIMIT 1", (day,)
+        ).fetchone()
+        allocation = number(previous[0]) / len(SYMBOLS)
+        available = number(a["cash"])
+        orders = []
+        # Sell first, so new entries can use the actual next-open net proceeds.
+        for symbol in SYMBOLS:
+            owned = positions.get(symbol, Decimal(0))
+            if signals[symbol] < 0 and owned:
+                proceeds = owned * openings[symbol]
+                available += (
+                    proceeds * (1 - self.settings.fee_bps / 10000) - self.settings.fixed_fee
+                )
+                orders.append(Order(symbol, "SELL", owned))
+        for symbol in SYMBOLS:
+            if signals[symbol] > 0 and not positions.get(symbol, Decimal(0)):
+                budget = max(Decimal(0), min(allocation, available) - self.settings.fixed_fee)
+                unit_cost = openings[symbol] * (1 + self.settings.fee_bps / 10000)
+                quantity = (budget / unit_cost).to_integral_value(rounding=ROUND_FLOOR)
+                if quantity:
+                    orders.append(Order(symbol, "BUY", quantity))
+                    available -= quantity * unit_cost + self.settings.fixed_fee
+        return orders
+
+
 def simulate(
     start: str,
     end: str,
@@ -130,7 +180,11 @@ def simulate(
         db = connect(temporary)
         warmup = (start_date - timedelta(days=160)).isoformat()
         update(db, provider or HistoricalYahooProvider(latest), warmup, days[-1])
-        strategy = MovingAverageCrossover(settings, symbol)
+        strategy = (
+            BasketMovingAverageCrossover(settings)
+            if symbol == "ALL"
+            else MovingAverageCrossover(settings, symbol)
+        )
         strategy.signal(db, days[0])  # Validate warm-up before creating the account.
         run(db, days[-1], settings, start=days[0], strategy=strategy, fill_at="open")
         db.execute("CREATE TABLE demo_metadata (spec TEXT NOT NULL)")

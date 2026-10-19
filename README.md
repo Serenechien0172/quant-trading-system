@@ -118,12 +118,14 @@ ledger record stores the actual fee. No API key is required for yfinance.
 ```bash
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m src.main demo --start 2025-01-01 --end 2026-10-01
 streamlit run dashboard/app.py
 ```
 
-Open the URL printed by Streamlit (normally http://localhost:8501). The dashboard
-defaults to the most recently generated historical demo. It includes eight portfolio
+Open the URL printed by Streamlit (normally http://localhost:8501), or the deployed
+Community Cloud app. Select **Run Demo Simulation** on the main page labeled
+**Historical Simulation — Paper Money Only**. No pre-existing account or database
+is needed. The default dates are 2025-01-01 through the latest completed US session.
+It includes starting capital, ending portfolio value, trade count, portfolio
 metrics, an explicit outperformance/underperformance comparison in percentage points,
 interactive equity and benchmark charts, positions, recent trades, and daily P&L
 history. Charts support zoom, hover, and date-window selection. Trade and history
@@ -131,13 +133,32 @@ tables can be downloaded as CSV. Headline metrics always cover the entire accoun
 history; the chart-period selector only restricts the displayed dates and does not
 rebase returns. SPY is the existing total-return benchmark, including dividends.
 
-Use the sidebar to run a new simulation for a date range and supported symbol, or
-select a saved simulation. Use the account selector to inspect the live paper account.
-The dashboard opens account databases read-only; it never submits live paper trades.
+The public demo trades SPY, QQQ, AAPL, NVDA, and MSFT in one $100,000 account.
+Each bullish entry has a budget capped at 20% of the previous session's equity,
+including fees, and available cash. Existing positions are held until their own
+bearish signal; this is not daily equal-weight rebalancing. Sells execute before
+buys. Unused allocations remain cash; no borrowing or short selling is allowed.
+
+The simulation runs in a unique temporary directory, loads its report into
+`st.session_state`, and deletes the temporary database before returning. Separate
+browser sessions never discover each other's simulations. Results last for the
+session and may disappear on refresh, disconnect, or app restart; rerun the demo
+to recreate them. Failed reruns preserve the session's previous successful result.
+The app needs Yahoo Finance network access but no credentials or uploaded files.
+Rate limits, empty data, and internal gaps show a useful error instead of a traceback.
+If the newest session is not available for all symbols, the demo uses the latest
+common session within five trading sessions of the requested end and labels it.
+It does not invent or forward-fill missing bars.
+
+Use the account selector to inspect a live paper account only where one is configured.
+An absent live database does not prevent the historical demo. The dashboard opens
+live account databases read-only; it never submits live paper trades.
 The latest session date is explicit, and stale live snapshots are flagged. Historical
 P&L is labeled "Latest session P&L", never presented as today's trading result.
 
-The demo is a simple **20/50 SMA strategy** on SPY by default. Optional
+The existing local CLI demo remains available separately:
+`python -m src.main demo --start 2025-01-01 --end 2026-10-01`.
+This single-symbol demo uses a simple **20/50 SMA strategy** on SPY by default. Optional
 `--symbol QQQ` (or AAPL, NVDA, MSFT) changes the traded symbol while retaining SPY
 as the benchmark. It uses the existing `PAPER_FIXED_FEE` and `PAPER_FEE_BPS` settings.
 
@@ -157,7 +178,7 @@ as the benchmark. It uses the existing `PAPER_FIXED_FEE` and `PAPER_FEE_BPS` set
 - Reuse the engine's corporate actions, execution simulator, fee-inclusive accounting,
   daily snapshots, and performance metrics. No borrowing or short positions.
 
-Each configuration writes a separate database under `data/demos/`, with the requested
+Each CLI configuration writes a separate database under `data/demos/`, with the requested
 dates, symbol, fees, and model version recorded in metadata. A repeat run builds a
 fresh temporary database and replaces only the matching demo after success. Failed
 runs leave prior results intact. Neither the default `data/paper.db` nor the configured
@@ -171,7 +192,8 @@ Those later actions restore nominal historical prices; they are not exposed to t
 strategy. Tests also change future observations and verify that earlier trades and
 snapshots remain identical.
 
-Dashboard code lives in `dashboard/app.py` and `dashboard/data.py`; historical
+Dashboard code lives in `dashboard/app.py`, `dashboard/data.py`, and
+`dashboard/session_demo.py`; historical
 simulation lives in `src/demo.py`. The only engine extension is an injectable strategy
 and an optional open-price fill, with the existing live close-price default preserved.
 Run the complete deterministic suite with `python -m pytest -q`.

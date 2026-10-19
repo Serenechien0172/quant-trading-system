@@ -37,11 +37,15 @@ def test_dashboard_demo_metrics_filters_and_live_empty_state(tmp_path, monkeypat
     simulate(
         "2025-01-01", "2025-02-03", Settings(), provider=HistoricalFixture(), directory=directory
     )
-    monkeypatch.setattr("src.demo.DEMO_DIRECTORY", directory)
+    report = load_report(next(directory.glob("*.db")), expect_demo=True)
+    monkeypatch.setattr("dashboard.session_demo.run_session_demo", lambda *args: report)
     monkeypatch.setenv("PAPER_DB", str(tmp_path / "missing-live.db"))
     app = AppTest.from_file(str(Path("dashboard/app.py").resolve()), default_timeout=30).run()
     assert not app.exception
-    assert len(app.metric) == 8
+    assert len(app.metric) == 1
+    next(b for b in app.button if b.label == "Run Demo Simulation").click().run()
+    assert not app.exception
+    assert len(app.metric) == 10
     assert "SPY" in app.markdown[-1].value or any("SPY" in x.value for x in app.markdown)
     app.button_group[1].set_value("3M").run()
     assert not app.exception
@@ -49,3 +53,22 @@ def test_dashboard_demo_metrics_filters_and_live_empty_state(tmp_path, monkeypat
     assert not app.exception
     assert app.warning
     assert not (tmp_path / "missing-live.db").exists()
+
+
+def test_dashboard_download_failure_and_session_isolation(monkeypatch, tmp_path):
+    from dashboard.session_demo import DemoDataError
+
+    def unavailable(*args):
+        raise DemoDataError("Yahoo Finance returned no data for NVDA. Retry later.")
+
+    monkeypatch.setattr("dashboard.session_demo.run_session_demo", unavailable)
+    monkeypatch.setenv("PAPER_DB", str(tmp_path / "absent.db"))
+    app = AppTest.from_file(str(Path("dashboard/app.py").resolve()), default_timeout=30).run()
+    next(b for b in app.button if b.label == "Run Demo Simulation").click().run()
+    assert not app.exception
+    assert "NVDA" in app.error[0].value
+    assert len(app.metric) == 1
+    assert not (tmp_path / "absent.db").exists()
+    second = AppTest.from_file(str(Path("dashboard/app.py").resolve()), default_timeout=30).run()
+    assert len(second.metric) == 1
+    assert not second.error
