@@ -7,7 +7,7 @@ from conftest import seed
 
 from src.calendar import sessions
 from src.config import Settings
-from src.demo import MovingAverageCrossover, simulate
+from src.historical_simulation import MovingAverageCrossover, simulate
 from src.market_data import Bar
 from src.portfolio import account, initialize
 

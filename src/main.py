@@ -8,7 +8,7 @@ from decimal import InvalidOperation
 
 from src.analytics import performance
 from src.calendar import latest_completed
-from src.config import Settings, number
+from src.config import SYMBOLS, Settings, number
 from src.market_data import YahooProvider, bars_on, update
 from src.pipeline import run
 from src.storage import connect
@@ -57,18 +57,20 @@ def main() -> int:
     parser.add_argument("--start", help="First session for a new account / market-data history")
     parser.add_argument("--strategy", choices=["cash", "dummy"], default=None)
     parser.add_argument("--end", help="Last date of a historical demo")
-    parser.add_argument("--symbol", choices=["SPY", "QQQ", "AAPL", "NVDA", "MSFT"], default="SPY")
+    parser.add_argument("--symbols", nargs="+", choices=SYMBOLS, default=list(SYMBOLS))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     db = None
     try:
         settings = Settings.from_env()
         if args.command == "demo":
-            from src.demo import simulate
+            from src.historical_simulation import simulate
 
             if not args.start or not args.end:
                 raise ValueError("Demo requires --start and --end")
-            path = simulate(args.start, args.end, settings, args.symbol)
+            path = simulate(
+                start=args.start, end=args.end, settings=settings, symbols=tuple(args.symbols)
+            )
             db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
             db.row_factory = sqlite3.Row
             print(f"HISTORICAL DEMO | {path}")

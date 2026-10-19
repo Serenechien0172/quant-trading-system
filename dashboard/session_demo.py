@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from dashboard.data import Report, load_report
-from src import demo as demo_engine
+from src import historical_simulation as demo_engine
 from src.calendar import latest_completed, sessions
 from src.config import SYMBOLS, Settings
 from src.market_data import Bar, Provider
@@ -28,9 +28,11 @@ def run_session_demo(
     end: str | None = None,
     settings: Settings | None = None,
     *,
+    symbols: tuple[str, ...] = SYMBOLS,
     provider: Provider | None = None,
 ) -> Report:
     settings = settings or Settings.from_env()
+    symbols = demo_engine.normalize_demo_symbols(symbols)
     latest = latest_completed()
     end = end or latest
     start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
@@ -69,7 +71,7 @@ def run_session_demo(
                 start,
                 actual_end,
                 settings,
-                symbols=SYMBOLS,
+                symbols=symbols,
                 provider=DownloadedHistory(bars),
                 directory=Path(temporary),
             )

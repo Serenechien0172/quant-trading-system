@@ -151,15 +151,15 @@ class BasketMovingAverageCrossover:
 def simulate(
     start: str,
     end: str,
-    settings: Settings,
-    symbol: str = "SPY",
+    settings: Settings | None = None,
     *,
-    symbols: tuple[str, ...] | None = None,
+    symbols: tuple[str, ...] = SYMBOLS,
     provider: Provider | None = None,
     directory: Path = DEMO_DIRECTORY,
 ) -> Path:
     """Build a fresh temporary account, publish only after a fully successful replay."""
-    universe = normalize_demo_symbols(symbols if symbols is not None else (symbol,))
+    settings = settings or Settings.from_env()
+    universe = normalize_demo_symbols(symbols)
     strategy = (
         BasketMovingAverageCrossover(settings, universe)
         if len(universe) > 1

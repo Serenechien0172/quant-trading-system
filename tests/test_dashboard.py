@@ -7,7 +7,7 @@ from test_demo import HistoricalFixture
 
 from dashboard.data import load_report
 from src.config import Settings
-from src.demo import simulate
+from src.historical_simulation import simulate
 from src.pipeline import run
 from src.storage import connect
 
@@ -38,7 +38,7 @@ def test_dashboard_demo_metrics_filters_and_live_empty_state(tmp_path, monkeypat
         "2025-01-01", "2025-02-03", Settings(), provider=HistoricalFixture(), directory=directory
     )
     report = load_report(next(directory.glob("*.db")), expect_demo=True)
-    monkeypatch.setattr("dashboard.session_demo.run_session_demo", lambda *args: report)
+    monkeypatch.setattr("dashboard.session_demo.run_session_demo", lambda *args, **kwargs: report)
     monkeypatch.setenv("PAPER_DB", str(tmp_path / "missing-live.db"))
     app = AppTest.from_file(str(Path("dashboard/app.py").resolve()), default_timeout=30).run()
     assert not app.exception
@@ -58,7 +58,7 @@ def test_dashboard_demo_metrics_filters_and_live_empty_state(tmp_path, monkeypat
 def test_dashboard_download_failure_and_session_isolation(monkeypatch, tmp_path):
     from dashboard.session_demo import DemoDataError
 
-    def unavailable(*args):
+    def unavailable(*args, **kwargs):
         raise DemoDataError("Yahoo Finance returned no data for NVDA. Retry later.")
 
     monkeypatch.setattr("dashboard.session_demo.run_session_demo", unavailable)

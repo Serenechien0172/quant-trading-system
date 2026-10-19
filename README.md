@@ -158,8 +158,8 @@ P&L is labeled "Latest session P&L", never presented as today's trading result.
 
 The existing local CLI demo remains available separately:
 `python -m src.main demo --start 2025-01-01 --end 2026-10-01`.
-This single-symbol demo uses a simple **20/50 SMA strategy** on SPY by default. Optional
-`--symbol QQQ` (or AAPL, NVDA, MSFT) changes the traded symbol while retaining SPY
+This demo uses a simple **20/50 SMA strategy** on all five symbols by default. Optional
+`--symbols QQQ AAPL` selects a subset while retaining SPY
 as the benchmark. It uses the existing `PAPER_FIXED_FEE` and `PAPER_FEE_BPS` settings.
 
 - Buy when the previous session's 20-day SMA exceeds its 50-day SMA and the account
@@ -179,7 +179,7 @@ as the benchmark. It uses the existing `PAPER_FIXED_FEE` and `PAPER_FEE_BPS` set
   daily snapshots, and performance metrics. No borrowing or short positions.
 
 Each CLI configuration writes a separate database under `data/demos/`, with the requested
-dates, symbol, fees, and model version recorded in metadata. A repeat run builds a
+dates, symbols, fees, and model version recorded in metadata. A repeat run builds a
 fresh temporary database and replaces only the matching demo after success. Failed
 runs leave prior results intact. Neither the default `data/paper.db` nor the configured
 `PAPER_DB` can be used as a demo destination. The live `update` and `pipeline` commands
@@ -194,7 +194,8 @@ snapshots remain identical.
 
 Dashboard code lives in `dashboard/app.py`, `dashboard/data.py`, and
 `dashboard/session_demo.py`; historical
-simulation lives in `src/demo.py`. The only engine extension is an injectable strategy
+simulation lives in `src/historical_simulation.py`. Both the CLI and dashboard use its
+`simulate(start, end, settings, *, symbols=SYMBOLS)` interface. The only engine extension is an injectable strategy
 and an optional open-price fill, with the existing live close-price default preserved.
 Run the complete deterministic suite with `python -m pytest -q`.
 

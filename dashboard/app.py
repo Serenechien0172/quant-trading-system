@@ -16,7 +16,7 @@ import streamlit as st
 from dashboard import session_demo
 from dashboard.data import load_report
 from src.calendar import latest_completed
-from src.config import Settings
+from src.config import SYMBOLS, Settings
 
 st.set_page_config(
     page_title="Quant Trading | Portfolio", page_icon=":material/monitoring:", layout="wide"
@@ -58,7 +58,9 @@ if demo_mode:
     if submitted:
         try:
             with st.spinner("Downloading five-symbol history and simulating trading sessions…"):
-                result = session_demo.run_session_demo(start.isoformat(), end.isoformat(), settings)
+                result = session_demo.run_session_demo(
+                    start=start.isoformat(), end=end.isoformat(), settings=settings, symbols=SYMBOLS
+                )
             st.session_state["demo_report"] = result
             st.session_state["demo_requested_end"] = end.isoformat()
         except Exception as exc:
