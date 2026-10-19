@@ -113,6 +113,69 @@ Configuration uses environment variables:
 Fees must be finite and nonnegative. Changes affect future orders only. Each
 ledger record stores the actual fee. No API key is required for yfinance.
 
+## Interactive Dashboard and Historical Demo
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m src.main demo --start 2025-01-01 --end 2026-10-01
+streamlit run dashboard/app.py
+```
+
+Open the URL printed by Streamlit (normally http://localhost:8501). The dashboard
+defaults to the most recently generated historical demo. It includes eight portfolio
+metrics, an explicit outperformance/underperformance comparison in percentage points,
+interactive equity and benchmark charts, positions, recent trades, and daily P&L
+history. Charts support zoom, hover, and date-window selection. Trade and history
+tables can be downloaded as CSV. Headline metrics always cover the entire account
+history; the chart-period selector only restricts the displayed dates and does not
+rebase returns. SPY is the existing total-return benchmark, including dividends.
+
+Use the sidebar to run a new simulation for a date range and supported symbol, or
+select a saved simulation. Use the account selector to inspect the live paper account.
+The dashboard opens account databases read-only; it never submits live paper trades.
+The latest session date is explicit, and stale live snapshots are flagged. Historical
+P&L is labeled "Latest session P&L", never presented as today's trading result.
+
+The demo is a simple **20/50 SMA strategy** on SPY by default. Optional
+`--symbol QQQ` (or AAPL, NVDA, MSFT) changes the traded symbol while retaining SPY
+as the benchmark. It uses the existing `PAPER_FIXED_FEE` and `PAPER_FEE_BPS` settings.
+
+- Buy when the previous session's 20-day SMA exceeds its 50-day SMA and the account
+  is flat. Sell the entire position when the previous session's 20-day SMA falls below
+  its 50-day SMA. Equal averages leave the position unchanged.
+- Download 160 calendar days of warm-up; require at least 50 prior sessions. Warm-up
+  data never creates portfolio returns or trades before the requested start.
+- Inception is the first trading session's close, matching the SPY benchmark baseline.
+  There is no inception-day trade. The first possible fill is the next session's open.
+- Compute signals exclusively from dates before execution. Use only already-known
+  splits to put the moving-average history on a consistent share basis. No execution-day
+  close or later price enters the signal.
+- Fill at the next open with whole-share sizing calculated from that opening quote,
+  available cash, and fees. This is an idealized open-price execution model, without
+  slippage or a guarantee of achieving an opening-auction fill in practice.
+- Reuse the engine's corporate actions, execution simulator, fee-inclusive accounting,
+  daily snapshots, and performance metrics. No borrowing or short positions.
+
+Each configuration writes a separate database under `data/demos/`, with the requested
+dates, symbol, fees, and model version recorded in metadata. A repeat run builds a
+fresh temporary database and replaces only the matching demo after success. Failed
+runs leave prior results intact. Neither the default `data/paper.db` nor the configured
+`PAPER_DB` can be used as a demo destination. The live `update` and `pipeline` commands
+reject demo databases. No demo data is committed or uploaded to GitHub.
+
+Yahoo can revise historical observations; these are retrospective experiments, not
+an archival point-in-time feed. The downloader reverses Yahoo split adjustments
+through the latest completed session before retaining only the requested demo window.
+Those later actions restore nominal historical prices; they are not exposed to the
+strategy. Tests also change future observations and verify that earlier trades and
+snapshots remain identical.
+
+Dashboard code lives in `dashboard/app.py` and `dashboard/data.py`; historical
+simulation lives in `src/demo.py`. The only engine extension is an injectable strategy
+and an optional open-price fill, with the existing live close-price default preserved.
+Run the complete deterministic suite with `python -m pytest -q`.
+
 ## Virtual Portfolio and P&L
 
 Money and share quantities are represented with `Decimal` and persisted as decimal

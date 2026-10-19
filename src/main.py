@@ -51,16 +51,35 @@ def portfolio(db: sqlite3.Connection) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Paper-only virtual trading account")
     parser.add_argument(
-        "command", choices=["update", "pipeline", "portfolio", "trades", "performance", "history"]
+        "command",
+        choices=["update", "pipeline", "portfolio", "trades", "performance", "history", "demo"],
     )
     parser.add_argument("--start", help="First session for a new account / market-data history")
     parser.add_argument("--strategy", choices=["cash", "dummy"], default=None)
+    parser.add_argument("--end", help="Last date of a historical demo")
+    parser.add_argument("--symbol", choices=["SPY", "QQQ", "AAPL", "NVDA", "MSFT"], default="SPY")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     db = None
     try:
         settings = Settings.from_env()
+        if args.command == "demo":
+            from src.demo import simulate
+
+            if not args.start or not args.end:
+                raise ValueError("Demo requires --start and --end")
+            path = simulate(args.start, args.end, settings, args.symbol)
+            db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+            db.row_factory = sqlite3.Row
+            print(f"HISTORICAL DEMO | {path}")
+            print(portfolio(db))
+            return 0
         db = connect(settings.database)
+        if (
+            args.command in ("update", "pipeline")
+            and db.execute("SELECT 1 FROM sqlite_master WHERE name='demo_metadata'").fetchone()
+        ):
+            raise ValueError("Historical demo accounts cannot run the live paper pipeline")
         if args.command == "update":
             end = latest_completed()
             existing = db.execute("SELECT start_date FROM account").fetchone()

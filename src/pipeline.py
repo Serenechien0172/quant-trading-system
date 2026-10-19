@@ -5,13 +5,13 @@ import sqlite3
 from datetime import date
 from decimal import Decimal
 
-from src.calendar import close_timestamp, sessions
+from src.calendar import close_timestamp, open_timestamp, sessions
 from src.config import Settings, number
 from src.execution import execute
 from src.market_data import bars_on
 from src.portfolio import account, corporate_actions, initialize, valuation
 from src.storage import transaction
-from src.strategies import get_strategy
+from src.strategies import Strategy, get_strategy
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +22,19 @@ def run(
     settings: Settings,
     strategy_name: str | None = None,
     start: str | None = None,
+    *,
+    strategy: Strategy | None = None,
+    fill_at: str = "close",
 ) -> int:
+    if fill_at not in ("open", "close"):
+        raise ValueError("Execution must use open or close prices")
     existing = db.execute("SELECT * FROM account").fetchone()
-    name = strategy_name or (existing["strategy"] if existing else "cash")
-    strategy = get_strategy(name)
+    name = (
+        strategy.name
+        if strategy
+        else strategy_name or (existing["strategy"] if existing else "cash")
+    )
+    strategy = strategy or get_strategy(name)
     start = start or (existing["start_date"] if existing else end)
     if existing and (name != existing["strategy"] or start != existing["start_date"]):
         raise ValueError("Account start and strategy are immutable; use a separate PAPER_DB")
@@ -52,8 +61,8 @@ def run(
                 execute(
                     db,
                     order,
-                    number(bars[order.symbol]["close"]),
-                    close_timestamp(day),
+                    number(bars[order.symbol][fill_at]),
+                    open_timestamp(day) if fill_at == "open" else close_timestamp(day),
                     f"{name}:{day}:{index}",
                     settings,
                 )

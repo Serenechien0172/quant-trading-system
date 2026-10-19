@@ -28,3 +28,10 @@ def close_timestamp(day: str) -> str:
     if schedule.empty:
         raise ValueError(f"{day} is not a trading session")
     return schedule.iloc[0].market_close.isoformat()
+
+
+def open_timestamp(day: str) -> str:
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=day, end_date=day)
+    if schedule.empty:
+        raise ValueError(f"{day} is not a trading session")
+    return schedule.iloc[0].market_open.isoformat()
