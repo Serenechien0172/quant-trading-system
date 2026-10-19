@@ -20,12 +20,26 @@ from src.storage import connect
 DEMO_DIRECTORY = Path("data/demos")
 
 
+def normalize_demo_symbols(symbols: tuple[str, ...]) -> tuple[str, ...]:
+    if not isinstance(symbols, tuple) or not symbols:
+        raise ValueError("Demo symbols must be a nonempty tuple of ticker strings")
+    normalized = []
+    for value in symbols:
+        if not isinstance(value, str) or value.strip().upper() not in SYMBOLS:
+            raise ValueError(
+                f"Unsupported demo symbol {value!r}; supported tickers: {', '.join(SYMBOLS)}"
+            )
+        normalized.append(value.strip().upper())
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("Duplicate demo symbols are not allowed")
+    return tuple(normalized)
+
+
 class MovingAverageCrossover:
     """Prior-session 20/50 signal, next-open execution with whole-share sizing."""
 
     def __init__(self, settings: Settings, symbol: str = "SPY") -> None:
-        if symbol not in SYMBOLS:
-            raise ValueError("Unsupported demo symbol")
+        symbol = normalize_demo_symbols((symbol,))[0]
         self.settings = settings
         self.symbol = symbol
         self.name = f"demo-sma20-50-{symbol}"
@@ -87,9 +101,11 @@ class BasketMovingAverageCrossover:
 
     name = "demo-sma20-50-five-symbols"
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, symbols: tuple[str, ...] = SYMBOLS) -> None:
         self.settings = settings
-        self.legs = {symbol: MovingAverageCrossover(settings, symbol) for symbol in SYMBOLS}
+        self.symbols = normalize_demo_symbols(symbols)
+        self.name = f"demo-sma20-50-{'-'.join(self.symbols)}"
+        self.legs = {symbol: MovingAverageCrossover(settings, symbol) for symbol in self.symbols}
 
     def signal(self, db: sqlite3.Connection, day: str) -> dict[str, int]:
         return {symbol: leg.signal(db, day) for symbol, leg in self.legs.items()}
@@ -109,11 +125,11 @@ class BasketMovingAverageCrossover:
         previous = db.execute(
             "SELECT equity FROM snapshots WHERE date<? ORDER BY date DESC LIMIT 1", (day,)
         ).fetchone()
-        allocation = number(previous[0]) / len(SYMBOLS)
+        allocation = number(previous[0]) / len(self.symbols)
         available = number(a["cash"])
         orders = []
         # Sell first, so new entries can use the actual next-open net proceeds.
-        for symbol in SYMBOLS:
+        for symbol in self.symbols:
             owned = positions.get(symbol, Decimal(0))
             if signals[symbol] < 0 and owned:
                 proceeds = owned * openings[symbol]
@@ -121,7 +137,7 @@ class BasketMovingAverageCrossover:
                     proceeds * (1 - self.settings.fee_bps / 10000) - self.settings.fixed_fee
                 )
                 orders.append(Order(symbol, "SELL", owned))
-        for symbol in SYMBOLS:
+        for symbol in self.symbols:
             if signals[symbol] > 0 and not positions.get(symbol, Decimal(0)):
                 budget = max(Decimal(0), min(allocation, available) - self.settings.fixed_fee)
                 unit_cost = openings[symbol] * (1 + self.settings.fee_bps / 10000)
@@ -138,10 +154,17 @@ def simulate(
     settings: Settings,
     symbol: str = "SPY",
     *,
+    symbols: tuple[str, ...] | None = None,
     provider: Provider | None = None,
     directory: Path = DEMO_DIRECTORY,
 ) -> Path:
     """Build a fresh temporary account, publish only after a fully successful replay."""
+    universe = normalize_demo_symbols(symbols if symbols is not None else (symbol,))
+    strategy = (
+        BasketMovingAverageCrossover(settings, universe)
+        if len(universe) > 1
+        else MovingAverageCrossover(settings, universe[0])
+    )
     start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
     latest = latest_completed()
     if start_date > end_date or end > latest:
@@ -154,13 +177,13 @@ def simulate(
     spec = {
         "start": start,
         "end": end,
-        "symbol": symbol,
+        "symbols": universe,
         "fixed_fee": str(settings.fixed_fee),
         "fee_bps": str(settings.fee_bps),
-        "version": 1,
+        "version": 2,
     }
     key = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:12]
-    target = directory / f"sma-{symbol}-{start}-{end}-{key}.db"
+    target = directory / f"sma-{'-'.join(universe)}-{start}-{end}-{key}.db"
     if target.resolve() in {settings.database.resolve(), Path("data/paper.db").resolve()}:
         raise ValueError("Demo destination must never be the live paper account")
     if target.exists():
@@ -180,11 +203,6 @@ def simulate(
         db = connect(temporary)
         warmup = (start_date - timedelta(days=160)).isoformat()
         update(db, provider or HistoricalYahooProvider(latest), warmup, days[-1])
-        strategy = (
-            BasketMovingAverageCrossover(settings)
-            if symbol == "ALL"
-            else MovingAverageCrossover(settings, symbol)
-        )
         strategy.signal(db, days[0])  # Validate warm-up before creating the account.
         run(db, days[-1], settings, start=days[0], strategy=strategy, fill_at="open")
         db.execute("CREATE TABLE demo_metadata (spec TEXT NOT NULL)")

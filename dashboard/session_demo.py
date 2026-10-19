@@ -5,9 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from dashboard.data import Report, load_report
+from src import demo as demo_engine
 from src.calendar import latest_completed, sessions
 from src.config import SYMBOLS, Settings
-from src.demo import HistoricalYahooProvider, simulate
 from src.market_data import Bar, Provider
 
 
@@ -42,7 +42,7 @@ def run_session_demo(
     if not requested:
         raise ValueError("The date range contains no trading sessions.")
     warmup = (start_date - timedelta(days=160)).isoformat()
-    source = provider or HistoricalYahooProvider(latest)
+    source = provider or demo_engine.HistoricalYahooProvider(latest)
     bars = {}
     for symbol in SYMBOLS:
         try:
@@ -65,11 +65,11 @@ def run_session_demo(
     actual_end = max(common)
     with TemporaryDirectory(prefix="quant-session-") as temporary:
         try:
-            path = simulate(
+            path = demo_engine.simulate(
                 start,
                 actual_end,
                 settings,
-                "ALL",
+                symbols=SYMBOLS,
                 provider=DownloadedHistory(bars),
                 directory=Path(temporary),
             )

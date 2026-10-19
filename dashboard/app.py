@@ -13,8 +13,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from dashboard import session_demo
 from dashboard.data import load_report
-from dashboard.session_demo import run_session_demo
 from src.calendar import latest_completed
 from src.config import Settings
 
@@ -58,7 +58,7 @@ if demo_mode:
     if submitted:
         try:
             with st.spinner("Downloading five-symbol history and simulating trading sessions…"):
-                result = run_session_demo(start.isoformat(), end.isoformat(), settings)
+                result = session_demo.run_session_demo(start.isoformat(), end.isoformat(), settings)
             st.session_state["demo_report"] = result
             st.session_state["demo_requested_end"] = end.isoformat()
         except Exception as exc:

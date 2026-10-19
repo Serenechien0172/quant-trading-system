@@ -12,14 +12,14 @@ def test_cloud_demo_uses_five_symbols_and_removes_temporary_db(tmp_path, monkeyp
     from dashboard import session_demo
 
     paths = []
-    original = session_demo.simulate
+    original = session_demo.demo_engine.simulate
 
     def tracked(*args, **kwargs):
         result = original(*args, **kwargs)
         paths.append(result)
         return result
 
-    monkeypatch.setattr(session_demo, "simulate", tracked)
+    monkeypatch.setattr(session_demo.demo_engine, "simulate", tracked)
     live = tmp_path / "paper.db"
     live.write_bytes(b"live account unchanged")
     report = run_session_demo(
